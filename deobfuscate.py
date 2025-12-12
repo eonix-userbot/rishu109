@@ -1,113 +1,59 @@
-#!/usr/bin/env python3
-"""
-Python Deobfuscator - Automatically decode and remove lambda-based obfuscation
-Just run: python deobfuscate.py
-"""
-
 import re
 import base64
 
+INPUT_FILE = "SPAM_BY_SHIN.py"   # rename if needed
+OUTPUT_FILE = "decoded_output.py"
 
-def decode_reversed_base64(encoded_str):
-    """Decode a reversed base64 string."""
+
+def extract_payload(code: str) -> bytes:
+    """
+    Extracts the first bytes literal b'....' from the code.
+    """
+    match = re.search(r"b'([^']+)'", code, re.DOTALL)
+    if not match:
+        match = re.search(r'b"([^"]+)"', code, re.DOTALL)
+
+    if not match:
+        raise ValueError("No b'...' payload found in file.")
+
+    return match.group(1).encode()
+
+
+def decode_payload(obf: bytes) -> bytes:
+    """
+    Safely decodes reversed urlsafe-base64 payload.
+    NEVER executes the result.
+    """
     try:
-        reversed_str = encoded_str[::-1]
-        decoded = base64.urlsafe_b64decode(reversed_str)
-        return decoded.decode('utf-8', errors='replace')
+        rev = obf[::-1]
+        decoded = base64.urlsafe_b64decode(rev)
+        return decoded
     except Exception as e:
-        return f"[Decoding error: {e}]"
-
-
-def decode_base64(encoded_str):
-    """Decode a regular base64 string."""
-    try:
-        decoded = base64.b64decode(encoded_str)
-        return decoded.decode('utf-8', errors='replace')
-    except Exception:
-        try:
-            decoded = base64.urlsafe_b64decode(encoded_str)
-            return decoded.decode('utf-8', errors='replace')
-        except Exception as e:
-            return f"[Decoding error: {e}]"
-
-
-def find_and_decode(content):
-    """Find all obfuscation patterns and decode them."""
-    findings = []
-    
-    # Pattern 1: _ = lambda __ : __import__('base64').urlsafe_b64decode(__[::-1]);exec((_)(b'...'))
-    lambda_pattern = r"_\s*=\s*lambda\s+__\s*:\s*__import__\s*\(\s*['\"]base64['\"]\s*\)\s*\.\s*urlsafe_b64decode\s*\(\s*__\s*\[\s*::\s*-1\s*\]\s*\)\s*;\s*exec\s*\(\s*\(\s*_\s*\)\s*\(\s*b['\"]([^'\"]+)['\"]\s*\)\s*\)"
-    
-    for match in re.finditer(lambda_pattern, content, re.MULTILINE | re.DOTALL):
-        encoded = match.group(1)
-        decoded = decode_reversed_base64(encoded)
-        findings.append({
-            'type': 'lambda + reversed base64',
-            'match': match.group(0),
-            'encoded': encoded,
-            'decoded': decoded
-        })
-    
-    # Pattern 2: exec(__import__('base64').b64decode(b'...'))
-    exec_pattern = r"exec\s*\(\s*__import__\s*\(\s*['\"]base64['\"]\s*\)\s*\.\s*b64decode\s*\(\s*b['\"]([^'\"]+)['\"]\s*\)\s*\)"
-    
-    for match in re.finditer(exec_pattern, content, re.MULTILINE):
-        encoded = match.group(1)
-        decoded = decode_base64(encoded)
-        findings.append({
-            'type': 'exec + base64',
-            'match': match.group(0),
-            'encoded': encoded,
-            'decoded': decoded
-        })
-    
-    # Pattern 3: exec(__import__('base64').urlsafe_b64decode(b'...'))
-    exec_urlsafe_pattern = r"exec\s*\(\s*__import__\s*\(\s*['\"]base64['\"]\s*\)\s*\.\s*urlsafe_b64decode\s*\(\s*b['\"]([^'\"]+)['\"]\s*\)\s*\)"
-    
-    for match in re.finditer(exec_urlsafe_pattern, content, re.MULTILINE):
-        encoded = match.group(1)
-        decoded = decode_base64(encoded)
-        findings.append({
-            'type': 'exec + urlsafe_b64decode',
-            'match': match.group(0),
-            'encoded': encoded,
-            'decoded': decoded
-        })
-    
-    return findings
-
-
-def remove_obfuscation(content):
-    """Remove obfuscation patterns from content."""
-    patterns = [
-        r"^\s*_\s*=\s*lambda\s+__\s*:\s*__import__\s*\(\s*['\"]base64['\"]\s*\).*?;.*?exec\s*\(\s*\(\s*_\s*\)\s*\(\s*b['\"].*?['\"]\s*\)\s*\)\s*$",
-        r"^\s*exec\s*\(\s*__import__\s*\(\s*['\"]base64['\"]\s*\).*?\)\s*$",
-    ]
-    
-    cleaned = content
-    for pattern in patterns:
-        cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE)
-    
-    # Clean up extra blank lines
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-    return cleaned.strip() + '\n'
+        print("Decoding failed:", e)
+        return b""
 
 
 def main():
-    print("\n" + "=" * 50)
-    print("  Python Deobfuscator")
-    print("=" * 50)
-    
-    filename = input("\nEnter Python filename: ").strip()
-    
-    if not filename:
-        print("No filename entered.")
-        return
-    
-    # Add .py extension if not present
-    if not filename.endswith('.py'):
-        filename += '.py'
-    
+    print("[*] Reading input file...")
+    with open(INPUT_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+
+    print("[*] Extracting obfuscated payload...")
+    payload = extract_payload(content)
+
+    print("[*] Decoding payload safely...")
+    decoded = decode_payload(payload)
+
+    print("[*] Writing decoded output...")
+    with open(OUTPUT_FILE, "wb") as f:
+        f.write(decoded)
+
+    print("\n[✓] Done! Decoded file saved as:", OUTPUT_FILE)
+    print("    (The decoded file was NOT executed — only extracted.)")
+
+
+if __name__ == "__main__":
+    main()    
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             content = f.read()
